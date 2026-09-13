@@ -22,11 +22,16 @@ COURSE_DIR = SCRIPT_DIR.parent
 # Kaggle CLI 直接寫進 --path，不經快取；但 KaggleHub 後備路徑會先落到
 # ~/.cache/kagglehub 再複製過來。一併指回課程樹，資料才不會散在家目錄。
 os.environ.setdefault("KAGGLEHUB_CACHE", str(COURSE_DIR / "datasets" / ".kagglehub_cache"))
+<<<<<<< HEAD
  
+=======
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
 def check_kaggle_api() -> None:
     """檢查 Kaggle API Token，統一使用新版 access_token 認證。"""
     kaggle_dir = Path.home() / ".kaggle"
     token_path = kaggle_dir / "access_token"
+<<<<<<< HEAD
  
     kaggle_dir.mkdir(parents=True, exist_ok=True)
  
@@ -47,18 +52,47 @@ def check_kaggle_api() -> None:
         # 統一注入環境變數，讓 Kaggle CLI / KaggleHub 共用
         os.environ["KAGGLE_API_TOKEN"] = token
  
+=======
+
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. 優先使用環境變數
+    env_token = os.environ.get("KAGGLE_API_TOKEN", "").strip()
+
+    if env_token:
+        print("✓ 已從環境變數 KAGGLE_API_TOKEN 取得 Kaggle Token")
+
+    # 2. 使用 ~/.kaggle/access_token
+    elif token_path.exists():
+        token = token_path.read_text(encoding="utf-8").strip()
+
+        if not token:
+            print(f"❌ Kaggle Token 檔案為空: {token_path}")
+            sys.exit(1)
+
+        # 統一注入環境變數，讓 Kaggle CLI / KaggleHub 共用
+        os.environ["KAGGLE_API_TOKEN"] = token
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
         try:
             os.chmod(token_path, 0o600)
         except OSError:
             # Windows 可能不完整支援 POSIX chmod
             pass
+<<<<<<< HEAD
  
         print(f"✓ 已載入 Kaggle Token: {token_path}")
  
+=======
+
+        print(f"✓ 已載入 Kaggle Token: {token_path}")
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     # 3. 如果目前目錄有 access_token，自動搬到 ~/.kaggle/
     elif Path("access_token").exists():
         source_token = Path("access_token")
         token = source_token.read_text(encoding="utf-8").strip()
+<<<<<<< HEAD
  
         if not token:
             print("❌ 當前目錄的 access_token 是空的")
@@ -66,15 +100,32 @@ def check_kaggle_api() -> None:
  
         shutil.copy2(source_token, token_path)
  
+=======
+
+        if not token:
+            print("❌ 當前目錄的 access_token 是空的")
+            sys.exit(1)
+
+        shutil.copy2(source_token, token_path)
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
         try:
             os.chmod(token_path, 0o600)
         except OSError:
             pass
+<<<<<<< HEAD
  
         os.environ["KAGGLE_API_TOKEN"] = token
  
         print(f"✓ 已將 access_token 複製到: {token_path}")
  
+=======
+
+        os.environ["KAGGLE_API_TOKEN"] = token
+
+        print(f"✓ 已將 access_token 複製到: {token_path}")
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     else:
         print("❌ 未找到 Kaggle API Token")
         print()
@@ -85,7 +136,11 @@ def check_kaggle_api() -> None:
         print("方式 2：設定環境變數 KAGGLE_API_TOKEN")
         print("方式 3：將 access_token 放在目前目錄，由程式自動複製")
         sys.exit(1)
+<<<<<<< HEAD
  
+=======
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     # 檢查 Kaggle CLI
     if shutil.which("kaggle") is None:
         print("未安裝 Kaggle CLI，正在安裝...")
@@ -99,7 +154,11 @@ def check_kaggle_api() -> None:
             print("❌ Kaggle CLI 安裝失敗")
             print(f"請手動執行: {sys.executable} -m pip install -U kaggle")
             sys.exit(1)
+<<<<<<< HEAD
  
+=======
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     # 驗證 CLI
     try:
         result = subprocess.run(
@@ -109,6 +168,7 @@ def check_kaggle_api() -> None:
             text=True,
         )
         print(f"✓ {result.stdout.strip()}")
+<<<<<<< HEAD
  
     except (subprocess.SubprocessError, FileNotFoundError) as exc:
         print(f"❌ Kaggle CLI 無法執行: {exc}")
@@ -119,6 +179,18 @@ def check_and_install_packages():
     """檢查並安裝必要的套件"""
     required_packages = ['kagglehub', 'requests', 'tqdm']
    
+=======
+
+    except (subprocess.SubprocessError, FileNotFoundError) as exc:
+        print(f"❌ Kaggle CLI 無法執行: {exc}")
+        sys.exit(1)
+
+# 檢查並安裝必要的套件
+def check_and_install_packages():
+    """檢查並安裝必要的套件"""
+    required_packages = ['kagglehub', 'requests', 'tqdm', 'datasets']
+    
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     for package in required_packages:
         try:
             __import__(package)
@@ -223,6 +295,30 @@ def get_datasets_info():
             "method": "kaggle_cli",
             "dataset_id": "rupakroy/urban-sound-8k",
             "folder": "urban_sound"
+        },
+        {
+            # M09 / M11 / extension 讀的是 datasets/raw/imdb_hf/{train,test}.csv，
+            # 不是上面那份 Kaggle IMDB 50K（落點 imdb_reviews/）。
+            # 走 HuggingFace 落地，版面與 stanfordnlp/imdb 欄位一致。
+            "module": "模組九 / 模組十一",
+            "topic": "多模態特徵工程 / 大模型訓練",
+            "name": "IMDB (HuggingFace)",
+            "type": "dataset",
+            "method": "hf_export",
+            "hf_export": "imdb",
+            "folder": "imdb_hf"
+        },
+        {
+            # M09 05_dogs_cats_case、M11 03_image_downstream 要的是
+            # datasets/raw/dogs_vs_cats/{cat,dog}/*.jpg。
+            # 不能改回 Kaggle 競賽 zip，版面對不上。
+            "module": "模組九 / 模組十一",
+            "topic": "多模態特徵工程 / 大模型訓練",
+            "name": "Dogs vs Cats (HuggingFace)",
+            "type": "dataset",
+            "method": "hf_export",
+            "hf_export": "cats_vs_dogs",
+            "folder": "dogs_vs_cats"
         },
         {
             "module": "模組十",
@@ -429,7 +525,86 @@ try:
 except ImportError:
     kagglehub = None
     KAGGLEHUB_AVAILABLE = False
+<<<<<<< HEAD
  
+=======
+
+def download_with_hf_export(dataset, target_folder):
+    """把 HuggingFace 資料落地到 datasets/raw/，版面與 notebook 讀取路徑一致。"""
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+
+    try:
+        from export_hf_datasets import export_cats_vs_dogs, export_imdb
+    except ImportError as exc:
+        print(f"❌ 找不到 export_hf_datasets.py: {exc}")
+        return False
+
+    kind = dataset.get("hf_export")
+    try:
+        if kind == "imdb":
+            export_imdb()
+            ok = (Path(target_folder) / "train.csv").exists()
+        elif kind == "cats_vs_dogs":
+            export_cats_vs_dogs()
+            ok = any(Path(target_folder).glob("*/*.jpg"))
+        else:
+            print(f"❌ 未知的 HF 匯出種類: {kind}")
+            return False
+    except SystemExit:
+        return False
+    except Exception as exc:
+        print(f"❌ HuggingFace 落地失敗: {exc}")
+        return False
+
+    if ok:
+        print(f"✅ HuggingFace 落地完成：{target_folder}")
+        return True
+
+    print(f"❌ 落地後找不到預期檔案: {target_folder}")
+    return False
+
+
+def flatten_duplicated_dir(target_folder):
+    """拉平「同名資料夾又包一層」的解壓結果。
+
+    有些 Kaggle zip 內層再包一層同名目錄（UrbanSound8K 就是這樣），解壓後會變成
+    urban_sound/UrbanSound8K/UrbanSound8K/{audio,metadata}/，notebook 得多寫兩層才讀到。
+    這裡把最內層的內容提到 target_folder，讓版面回到官方的 audio/ 與 metadata/。
+
+    外層已存在的同名「檔案」視為 zip 內的重複檔，刪掉內層那份；同名「目錄」則保留不動，
+    並略過整個殼層的刪除，避免誤刪。可重複執行，沒有這種結構時什麼都不做。
+    """
+    base = Path(target_folder)
+    if not base.is_dir():
+        return
+
+    for wrapper in [d for d in base.iterdir() if d.is_dir()]:
+        inner = wrapper / wrapper.name          # 例如 UrbanSound8K/UrbanSound8K
+        if not inner.is_dir():
+            continue
+
+        print(f"   🔧 偵測到重複巢狀目錄，正在拉平 {wrapper.name}/{wrapper.name}/ …")
+        collided = []
+        for item in list(inner.iterdir()):
+            dest = base / item.name
+            if not dest.exists():
+                shutil.move(str(item), str(dest))
+            elif item.is_file():
+                item.unlink()                   # zip 內重複檔，外層那份留著
+            else:
+                collided.append(item.name)      # 同名目錄，不動它
+
+        if collided:
+            print(f"   ⚠️  外層已有同名目錄，保留未移動：{', '.join(collided)}")
+            print(f"   ⚠️  {wrapper} 未刪除，請手動確認。")
+            continue
+
+        shutil.rmtree(wrapper, ignore_errors=True)
+        print(f"   ✅ 已拉平到 {base}")
+
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
 # 下載資料集
 def download_dataset(dataset, base_dir):
     """下載單個資料集到指定目錄，根據預設方法"""
@@ -450,7 +625,8 @@ def download_dataset(dataset, base_dir):
     method_map = {
         'kaggle_cli': '💻 Kaggle CLI',
         'direct': '🌐 直接下載',
-        'kagglehub_only': '🤗 KaggleHub'
+        'kagglehub_only': '🤗 KaggleHub',
+        'hf_export': '🤗 HuggingFace 落地',
     }
     print(f"🔧 使用方法: {method_map.get(method, '未知')}")
     print(f"📁 目標資料夾: {target_folder}")
@@ -535,11 +711,34 @@ def download_dataset(dataset, base_dir):
             else:
                 pbar.set_description("❌ KaggleHub 下載失敗"); pbar.update(80)
                 success = False
+<<<<<<< HEAD
    
     else:
         print(f"\n❌ 未知的下載方法: {method}")
         success = False
  
+=======
+
+    # --- HuggingFace 落地（imdb_hf / dogs_vs_cats）---
+    elif method == 'hf_export':
+        with tqdm(total=100, desc="🤗 HuggingFace", bar_format='{l_bar}{bar}| {percentage:3.0f}%') as pbar:
+            pbar.set_description("🔧 準備 HuggingFace 落地..."); pbar.update(20)
+            if download_with_hf_export(dataset, target_folder):
+                pbar.set_description("✅ HuggingFace 落地完成"); pbar.update(80)
+                success = True
+            else:
+                pbar.set_description("❌ HuggingFace 落地失敗"); pbar.update(80)
+                success = False
+    
+    else:
+        print(f"\n❌ 未知的下載方法: {method}")
+        success = False
+
+    if success:
+        # 解壓結果若多包一層同名目錄，就地拉平，讓 notebook 的相對路徑不必多算兩層
+        flatten_duplicated_dir(target_folder)
+
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
     if not success:
         print(f"\n❌ {dataset['name']} 下載失敗。")
         print("💡 建議檢查:")
@@ -596,9 +795,16 @@ def main():
     for i, dataset in enumerate(datasets, 1):
         method = dataset.get("method", "kaggle_cli")
         method_map = {
+<<<<<<< HEAD
             'kaggle_cli': '(CLI+Hub)',
             'direct': '(Direct)',
             'kagglehub_only': '(Hub Only)'
+=======
+            'kaggle_cli': '(CLI+Hub)', 
+            'direct': '(Direct)', 
+            'kagglehub_only': '(Hub Only)',
+            'hf_export': '(HF Export)',
+>>>>>>> 2ce1df15f130a113b426c86e92b8067f06abb1b0
         }
         method_tag = method_map.get(method, '')
  
@@ -612,6 +818,9 @@ def main():
             else:  # dataset
                 dataset_type_icon = "🤗"
                 cmd_info = f"kagglehub.dataset_download('{dataset['dataset_id']}')"
+        elif method == "hf_export":
+            dataset_type_icon = "🤗"
+            cmd_info = f"export_hf_datasets.py --only {dataset['hf_export']}"
         else:  # kaggle_cli
             if dataset["type"] == "competition":
                 dataset_type_icon = "🏆"
@@ -627,8 +836,8 @@ def main():
         print()
    
     print("📌 圖標與標籤說明:")
-    print("   🏆 = Kaggle 競賽(CLI), 📊 = Kaggle 資料集(CLI), 🌐 = 直接下載, 🤗 = KaggleHub")
-    print("   (CLI+Hub) = Kaggle CLI + KaggleHub 備用, (Direct) = 直接 HTTP 下載, (Hub Only) = 僅 KaggleHub")
+    print("   🏆 = Kaggle 競賽(CLI), 📊 = Kaggle 資料集(CLI), 🌐 = 直接下載, 🤗 = KaggleHub / HuggingFace")
+    print("   (CLI+Hub) = Kaggle CLI + KaggleHub 備用, (Direct) = 直接 HTTP 下載, (Hub Only) = 僅 KaggleHub, (HF Export) = HuggingFace 落地")
     print("=" * 80)
    
     # 提供選項
