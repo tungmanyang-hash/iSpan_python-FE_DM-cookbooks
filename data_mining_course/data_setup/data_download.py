@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+ 
 """
 資料集下載腳本
 用於下載資料探勘課程所需的所有 Kaggle 資料集
 """
-
+ 
 import os
 import subprocess
 import time
@@ -13,58 +13,112 @@ import shutil
 import sys
 import zipfile
 from pathlib import Path
-
+ 
 # 以本檔位置定錨，讓下載結果不受「在哪個目錄執行」影響：
 # data_mining_course/data_setup/data_download.py -> COURSE_DIR = data_mining_course/
 SCRIPT_DIR = Path(__file__).resolve().parent
 COURSE_DIR = SCRIPT_DIR.parent
-
+ 
 # Kaggle CLI 直接寫進 --path，不經快取；但 KaggleHub 後備路徑會先落到
 # ~/.cache/kagglehub 再複製過來。一併指回課程樹，資料才不會散在家目錄。
 os.environ.setdefault("KAGGLEHUB_CACHE", str(COURSE_DIR / "datasets" / ".kagglehub_cache"))
-
-# 確保 Kaggle API 憑證存在
-def check_kaggle_api():
-    """檢查 Kaggle API 憑證是否存在，若不存在則引導用戶設置"""
-    kaggle_dir = os.path.expanduser('~/.kaggle')
-    kaggle_api_path = os.path.join(kaggle_dir, 'kaggle.json')
-    
-    if not os.path.exists(kaggle_api_path):
-        print("未找到 Kaggle API 憑證。")
-        print("請前往 https://www.kaggle.com/account 獲取 API 憑證")
-        print("下載 kaggle.json 檔案後，將其放置於 ~/.kaggle/kaggle.json")
-        
-        # 嘗試創建目錄
-        if not os.path.exists(kaggle_dir):
-            os.makedirs(kaggle_dir)
-        
-        # 檢查當前目錄是否有 kaggle.json
-        if os.path.exists('kaggle.json'):
-            print("在當前目錄找到 kaggle.json，正在複製到 ~/.kaggle/")
-            shutil.copy('kaggle.json', kaggle_api_path)
-            os.chmod(kaggle_api_path, 0o600)  # 設置適當的權限
-            print(f"已複製 Kaggle API 憑證檔案到: {kaggle_api_path}")
-        else:
-            print("請將 kaggle.json 放置於當前目錄或 ~/.kaggle/ 目錄")
+ 
+def check_kaggle_api() -> None:
+    """檢查 Kaggle API Token，統一使用新版 access_token 認證。"""
+    kaggle_dir = Path.home() / ".kaggle"
+    token_path = kaggle_dir / "access_token"
+ 
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
+ 
+    # 1. 優先使用環境變數
+    env_token = os.environ.get("KAGGLE_API_TOKEN", "").strip()
+ 
+    if env_token:
+        print("✓ 已從環境變數 KAGGLE_API_TOKEN 取得 Kaggle Token")
+ 
+    # 2. 使用 ~/.kaggle/access_token
+    elif token_path.exists():
+        token = token_path.read_text(encoding="utf-8").strip()
+ 
+        if not token:
+            print(f"❌ Kaggle Token 檔案為空: {token_path}")
             sys.exit(1)
-    
-    # 檢查 kaggle 命令是否可用
-    try:
-        subprocess.run(['kaggle', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except (subprocess.SubprocessError, FileNotFoundError):
-        print("未安裝 Kaggle CLI。正在嘗試安裝...")
+ 
+        # 統一注入環境變數，讓 Kaggle CLI / KaggleHub 共用
+        os.environ["KAGGLE_API_TOKEN"] = token
+ 
         try:
-            subprocess.run(['pip', 'install', 'kaggle'], check=True)
-            print("Kaggle CLI 安裝成功！")
-        except subprocess.SubprocessError:
-            print("安裝 Kaggle CLI 失敗。請手動執行: pip install kaggle")
+            os.chmod(token_path, 0o600)
+        except OSError:
+            # Windows 可能不完整支援 POSIX chmod
+            pass
+ 
+        print(f"✓ 已載入 Kaggle Token: {token_path}")
+ 
+    # 3. 如果目前目錄有 access_token，自動搬到 ~/.kaggle/
+    elif Path("access_token").exists():
+        source_token = Path("access_token")
+        token = source_token.read_text(encoding="utf-8").strip()
+ 
+        if not token:
+            print("❌ 當前目錄的 access_token 是空的")
             sys.exit(1)
-
+ 
+        shutil.copy2(source_token, token_path)
+ 
+        try:
+            os.chmod(token_path, 0o600)
+        except OSError:
+            pass
+ 
+        os.environ["KAGGLE_API_TOKEN"] = token
+ 
+        print(f"✓ 已將 access_token 複製到: {token_path}")
+ 
+    else:
+        print("❌ 未找到 Kaggle API Token")
+        print()
+        print("請前往 Kaggle Settings → API → Generate New Token")
+        print("取得 Token 後，使用以下任一方式：")
+        print()
+        print("方式 1：建立 ~/.kaggle/access_token")
+        print("方式 2：設定環境變數 KAGGLE_API_TOKEN")
+        print("方式 3：將 access_token 放在目前目錄，由程式自動複製")
+        sys.exit(1)
+ 
+    # 檢查 Kaggle CLI
+    if shutil.which("kaggle") is None:
+        print("未安裝 Kaggle CLI，正在安裝...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "kaggle"],
+                check=True,
+            )
+            print("✓ Kaggle CLI 安裝成功")
+        except subprocess.SubprocessError:
+            print("❌ Kaggle CLI 安裝失敗")
+            print(f"請手動執行: {sys.executable} -m pip install -U kaggle")
+            sys.exit(1)
+ 
+    # 驗證 CLI
+    try:
+        result = subprocess.run(
+            ["kaggle", "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        print(f"✓ {result.stdout.strip()}")
+ 
+    except (subprocess.SubprocessError, FileNotFoundError) as exc:
+        print(f"❌ Kaggle CLI 無法執行: {exc}")
+        sys.exit(1)
+ 
 # 檢查並安裝必要的套件
 def check_and_install_packages():
     """檢查並安裝必要的套件"""
     required_packages = ['kagglehub', 'requests', 'tqdm']
-    
+   
     for package in required_packages:
         try:
             __import__(package)
@@ -77,7 +131,7 @@ def check_and_install_packages():
             except subprocess.SubprocessError:
                 print(f"× {package} 安裝失敗，請手動安裝: pip install {package}")
                 sys.exit(1)
-
+ 
 # 定義資料集資訊
 def get_datasets_info():
     """獲取所有需要下載的資料集資訊"""
@@ -214,13 +268,13 @@ def get_datasets_info():
         }
     ]
     return datasets
-
+ 
 # 原生 Kaggle CLI 下載方法
 def download_with_kaggle_cli(dataset, target_folder):
     """使用原生 Kaggle CLI 下載資料集，並自動解壓縮"""
     try:
         is_competition = dataset.get("type") == "competition"
-        
+       
         if is_competition:
             # 競賽下載
             entity_id = dataset["competition_id"]
@@ -229,23 +283,23 @@ def download_with_kaggle_cli(dataset, target_folder):
             # 資料集下載
             entity_id = dataset["dataset_id"]
             cmd = ['kaggle', 'datasets', 'download', entity_id, '--path', target_folder, '--unzip']
-        
+       
         print(f"   📋 執行命令: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True)
-        
+       
         # Manually decode stdout and stderr with error handling
         stdout_decoded = result.stdout.decode('utf-8', errors='replace')
         stderr_decoded = result.stderr.decode('utf-8', errors='replace')
-
+ 
         if result.returncode == 0:
             print(f"✅ 原生 CLI 下載成功！")
-
+ 
             # 如果是競賽，則手動解壓縮
             if is_competition:
                 # 尋找下載的 zip 檔案
                 zip_filename = f"{entity_id}.zip"
                 zip_filepath = os.path.join(target_folder, zip_filename)
-
+ 
                 if os.path.exists(zip_filepath):
                     print(f"   🔄 正在解壓縮檔案: {zip_filename}...")
                     with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
@@ -264,7 +318,7 @@ def download_with_kaggle_cli(dataset, target_folder):
                             os.remove(zip_filepath)
                             print(f"   ✅ 解壓縮完成並已刪除 Zip 檔案。")
                             break
-
+ 
             files = [f for f in os.listdir(target_folder) if not f.endswith('.zip')]
             print(f"📁 目錄中的檔案: {files}")
             return True
@@ -273,10 +327,10 @@ def download_with_kaggle_cli(dataset, target_folder):
             error_msg = stderr_decoded.strip() if stderr_decoded else ""
             output_msg = stdout_decoded.strip() if stdout_decoded else ""
             combined_msg = f"{error_msg} {output_msg}".strip()
-            
+           
             if not combined_msg:
                 combined_msg = "未知錯誤"
-            
+           
             if "401" in combined_msg or "Unauthorized" in combined_msg:
                 print(f"❌ CLI 下載失敗 (401 Unauthorized): 請先到 Kaggle 網站接受該競賽/資料集的使用條款。")
                 if dataset.get('type') == "competition":
@@ -290,23 +344,23 @@ def download_with_kaggle_cli(dataset, target_folder):
             else:
                 print(f"❌ 原生 CLI 下載失敗: {combined_msg}")
             return False
-            
+           
     except Exception as e:
         print(f"❌ 原生 CLI 下載發生未知錯誤: {str(e)}")
         return False
-
+ 
 # KaggleHub 下載方法（改進版 - 基於 simple_download.py 的驗證方法）
 def download_with_kagglehub(dataset, target_folder):
     """使用 KaggleHub 下載資料集到指定資料夾"""
     if not KAGGLEHUB_AVAILABLE:
         print("❌ KaggleHub 未安裝")
         return False
-    
+   
     try:
         from pathlib import Path
-        
+       
         is_competition = dataset.get("type") == "competition"
-        
+       
         if is_competition:
             # 競賽下載
             entity_id = dataset["competition_id"]
@@ -317,22 +371,22 @@ def download_with_kagglehub(dataset, target_folder):
             entity_id = dataset["dataset_id"]
             print(f"   📋 使用 KaggleHub 下載資料集: {entity_id}")
             cache_path = kagglehub.dataset_download(entity_id)
-        
+       
         print(f"✅ KaggleHub 下載成功，緩存路徑: {cache_path}")
-        
+       
         # 創建目標資料夾
         target_path = Path(target_folder)
         target_path.mkdir(parents=True, exist_ok=True)
-        
+       
         # 複製檔案到目標資料夾
         print(f"   📁 複製檔案到目標目錄: {target_folder}")
-        
+       
         # 如果目標資料夾已存在且不為空，先清空
         if target_path.exists() and any(target_path.iterdir()):
             import shutil
             shutil.rmtree(target_path)
             target_path.mkdir(parents=True, exist_ok=True)
-        
+       
         # 複製所有檔案
         cache_path_obj = Path(cache_path)
         if cache_path_obj.is_file():
@@ -347,15 +401,15 @@ def download_with_kagglehub(dataset, target_folder):
                     shutil.copy2(item, target_path / item.name)
                 elif item.is_dir():
                     shutil.copytree(item, target_path / item.name)
-        
+       
         print(f"   ✅ 複製完成")
-        
+       
         # 顯示下載的檔案
         files = list(target_path.glob('*'))
         print(f"   📄 資料夾中的檔案: {[f.name for f in files]}")
-        
+       
         return True
-        
+       
     except Exception as e:
         error_msg = str(e)
         if "401" in error_msg or "permission" in error_msg.lower():
@@ -367,7 +421,7 @@ def download_with_kagglehub(dataset, target_folder):
         else:
             print(f"❌ KaggleHub 下載失敗: {error_msg}")
         return False
-
+ 
 # 全域導入 kagglehub，避免重複導入
 try:
     import kagglehub
@@ -375,34 +429,34 @@ try:
 except ImportError:
     kagglehub = None
     KAGGLEHUB_AVAILABLE = False
-
+ 
 # 下載資料集
 def download_dataset(dataset, base_dir):
     """下載單個資料集到指定目錄，根據預設方法"""
     from tqdm import tqdm
-    
+   
     # target_dir 讓少數資料集（如二手車）落在 notebook 旁邊而非 datasets/raw/
     target_dir = dataset.get("target_dir")
     target_folder = os.path.abspath(target_dir) if target_dir else os.path.join(base_dir, "raw", dataset["folder"])
     os.makedirs(target_folder, exist_ok=True)
-    
+   
     method = dataset.get("method", "kaggle_cli")
-    
+   
     # --- Display Info ---
     print(f"\n{'='*60}")
     print(f"📦 {dataset['name']}")
     print(f"📂 模組: {dataset.get('module', 'N/A')} - {dataset.get('topic', 'N/A')}")
-    
+   
     method_map = {
-        'kaggle_cli': '💻 Kaggle CLI', 
+        'kaggle_cli': '💻 Kaggle CLI',
         'direct': '🌐 直接下載',
         'kagglehub_only': '🤗 KaggleHub'
     }
     print(f"🔧 使用方法: {method_map.get(method, '未知')}")
     print(f"📁 目標資料夾: {target_folder}")
-    
+   
     success = False
-
+ 
     # --- Direct Download Method ---
     if method == 'direct':
         with tqdm(total=100, desc="🌐 直接下載", bar_format='{l_bar}{bar}| {percentage:3.0f}%') as pbar:
@@ -410,13 +464,13 @@ def download_dataset(dataset, base_dir):
                 import requests
                 url = dataset['direct_url']
                 pbar.set_description(f"⬇️ 下載 {os.path.basename(url)}...")
-                
+               
                 response = requests.get(url, stream=True)
                 response.raise_for_status()
-                
+               
                 total_size = int(response.headers.get('content-length', 0))
                 downloaded_size = 0
-                
+               
                 local_file = os.path.join(target_folder, os.path.basename(url))
                 with open(local_file, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
@@ -426,7 +480,7 @@ def download_dataset(dataset, base_dir):
                             progress = (downloaded_size / total_size) * 100
                             pbar.n = int(progress)
                             pbar.refresh()
-                
+               
                 pbar.n = 100
                 pbar.set_description("✅ 下載完成")
                 print(f"\n✅ 成功下載 {dataset['name']} 資料集！")
@@ -437,7 +491,7 @@ def download_dataset(dataset, base_dir):
                 pbar.set_description("❌ 直接下載失敗")
                 print(f"\n❌ 直接下載失敗: {str(e)}")
                 success = False
-
+ 
         # Try backup URLs if primary failed
         if not success and "backup_urls" in dataset:
             print("\n🔄 主要下載失敗，嘗試備用 URL...")
@@ -454,7 +508,7 @@ def download_dataset(dataset, base_dir):
                 if download_dataset(backup_dataset_info, base_dir):
                     success = True
                     break
-
+ 
     # --- Kaggle CLI Method ---
     elif method == 'kaggle_cli':
         with tqdm(total=100, desc="💻 Kaggle CLI", bar_format='{l_bar}{bar}| {percentage:3.0f}%') as pbar:
@@ -470,7 +524,7 @@ def download_dataset(dataset, base_dir):
                 else:
                     pbar.set_description("❌ 所有方法都失敗"); pbar.update(20)
                     success = False
-    
+   
     # --- KaggleHub Only Method ---
     elif method == 'kagglehub_only':
         with tqdm(total=100, desc="🤗 KaggleHub", bar_format='{l_bar}{bar}| {percentage:3.0f}%') as pbar:
@@ -481,11 +535,11 @@ def download_dataset(dataset, base_dir):
             else:
                 pbar.set_description("❌ KaggleHub 下載失敗"); pbar.update(80)
                 success = False
-    
+   
     else:
         print(f"\n❌ 未知的下載方法: {method}")
         success = False
-
+ 
     if not success:
         print(f"\n❌ {dataset['name']} 下載失敗。")
         print("💡 建議檢查:")
@@ -495,59 +549,59 @@ def download_dataset(dataset, base_dir):
             print("   • 是否已在 Kaggle 網站上手動接受競賽/資料集使用條款")
         if dataset.get('type') == "competition":
              print(f"   • 手動接受條款: https://www.kaggle.com/c/{dataset['competition_id']}")
-
+ 
     return success
-
-
+ 
+ 
 def validate_choice(choice, max_value, option_name="選項"):
     """驗證用戶輸入的選擇是否有效"""
     if choice.isdigit() and 1 <= int(choice) <= max_value:
         return True
     print(f"❌ 無效的{option_name}，請輸入 1-{max_value} 之間的數字")
     return False
-
-
+ 
+ 
 # 主函數
 def main():
     """主函數：檢查環境、下載資料集"""
     print("=" * 60)
     print("資料探勘課程資料集下載工具")
     print("=" * 60)
-    
+   
     # 檢查並安裝必要的套件
     check_and_install_packages()
-    
+   
     # 檢查 Kaggle API
     check_kaggle_api()
-    
+   
     # 設置資料目錄
     base_dir = str(COURSE_DIR / "datasets")
     raw_dir = os.path.join(base_dir, "raw")
     processed_dir = os.path.join(base_dir, "processed")
-    
+   
     # 創建必要的目錄
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
-    
+   
     # 獲取資料集資訊
     datasets = get_datasets_info()
-    
+   
     # 隨 repo 附上的資料集不列入批次下載，避免覆蓋版控裡的檔案
     bulk_datasets = [d for d in datasets if not d.get("skip_bulk")]
-
+ 
     # 顯示將要下載的資料集
     print(f"\n📋 可下載的資料集列表 (共 {len(datasets)} 個，其中 {len(datasets) - len(bulk_datasets)} 個已隨 repo 附上):")
     print("=" * 80)
-    
+   
     for i, dataset in enumerate(datasets, 1):
         method = dataset.get("method", "kaggle_cli")
         method_map = {
-            'kaggle_cli': '(CLI+Hub)', 
-            'direct': '(Direct)', 
+            'kaggle_cli': '(CLI+Hub)',
+            'direct': '(Direct)',
             'kagglehub_only': '(Hub Only)'
         }
         method_tag = method_map.get(method, '')
-
+ 
         if method == "direct":
             dataset_type_icon = "🌐"
             cmd_info = f"直接下載: {dataset['direct_url']}"
@@ -565,18 +619,18 @@ def main():
             else:  # dataset
                 dataset_type_icon = "📊"
                 cmd_info = f"kaggle datasets download {dataset['dataset_id']}"
-        
+       
         bundled_tag = " 〔已隨 repo 附上，批次下載會跳過〕" if dataset.get("skip_bulk") else ""
         print(f"{i:2d}. {dataset_type_icon} {method_tag} {dataset['name']}{bundled_tag}")
         print(f"    📂 模組: {dataset['module']} - {dataset['topic']}")
         print(f"    💻 指令: {cmd_info}")
         print()
-    
+   
     print("📌 圖標與標籤說明:")
     print("   🏆 = Kaggle 競賽(CLI), 📊 = Kaggle 資料集(CLI), 🌐 = 直接下載, 🤗 = KaggleHub")
     print("   (CLI+Hub) = Kaggle CLI + KaggleHub 備用, (Direct) = 直接 HTTP 下載, (Hub Only) = 僅 KaggleHub")
     print("=" * 80)
-    
+   
     # 提供選項
     print("\n⚙️  請選擇下載選項:")
     print("1. 📦 下載所有資料集（智能下載）")
@@ -584,77 +638,77 @@ def main():
     print("3. 🔍 下載單一資料集（智能下載）")
     print("0. ❌ 取消操作")
     print()
-    
+   
     choice = input("\n請輸入選項 (0-3): ").strip()
-    
+   
     if choice == '1':
         # 下載所有資料集（隨 repo 附上的資料不重複下載）
         from tqdm import tqdm
-
+ 
         datasets = bulk_datasets
         print(f"\n🚀 開始下載所有 {len(datasets)} 個資料集...")
         success_count = 0
-        
+       
         with tqdm(total=len(datasets), desc="📦 總體進度", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} 個資料集') as total_pbar:
             for i, dataset in enumerate(datasets, 1):
                 total_pbar.set_description(f"📦 處理 {i}/{len(datasets)}: {dataset['name']}")
-                
+               
                 if download_dataset(dataset, base_dir):
                     success_count += 1
                     total_pbar.set_postfix({'成功': success_count, '失敗': i - success_count})
-                
+               
                 total_pbar.update(1)
                 time.sleep(1)  # 避免 API 請求過於頻繁
-        
+       
         print(f"\n🎉 下載完成！成功下載 {success_count}/{len(datasets)} 個資料集。")
         print(f"📁 資料集已保存在: {raw_dir}")
-        
+       
     elif choice == '2':
         # 顯示模組列表
         modules = sorted(list(set([d['module'] for d in datasets])))
         print("\n可選模組:")
         for i, module in enumerate(modules, 1):
             print(f"{i}. {module}")
-        
+       
         module_choice = input("\n請選擇模組編號: ").strip()
         if validate_choice(module_choice, len(modules), "模組編號"):
             selected_module = modules[int(module_choice) - 1]
             module_datasets = [d for d in bulk_datasets if d['module'] == selected_module]
-            
+           
             print(f"\n將下載 {selected_module} 的以下資料集:")
             for i, dataset in enumerate(module_datasets, 1):
                 print(f"{i}. {dataset['name']}")
-            
+           
             confirm = input("\n確認下載? (y/n): ").strip().lower()
             if confirm == 'y':
                 from tqdm import tqdm
-                
+               
                 print(f"\n🚀 開始下載 {selected_module} 的 {len(module_datasets)} 個資料集...")
                 success_count = 0
-                
+               
                 with tqdm(total=len(module_datasets), desc="📦 模組進度", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} 個資料集') as module_pbar:
                     for i, dataset in enumerate(module_datasets, 1):
                         module_pbar.set_description(f"📦 處理 {i}/{len(module_datasets)}: {dataset['name']}")
-                        
+                       
                         if download_dataset(dataset, base_dir):
                             success_count += 1
                             module_pbar.set_postfix({'成功': success_count, '失敗': i - success_count})
-                        
+                       
                         module_pbar.update(1)
                         time.sleep(1)
-                
+               
                 print(f"\n🎉 下載完成！成功下載 {success_count}/{len(module_datasets)} 個資料集。")
                 print(f"📁 資料集已保存在: {raw_dir}")
             else:
                 print("操作已取消。")
-    
+   
     elif choice == '3':
         # 下載單一資料集
         dataset_choice = input(f"\n請輸入資料集編號 (1-{len(datasets)}): ").strip()
         if validate_choice(dataset_choice, len(datasets), "資料集編號"):
             dataset = datasets[int(dataset_choice) - 1]
             print(f"\n將下載: {dataset['name']} ({dataset['module']}: {dataset['topic']})")
-            
+           
             confirm = input("確認下載? (y/n): ").strip().lower()
             if confirm == 'y':
                 if download_dataset(dataset, base_dir):
@@ -664,9 +718,9 @@ def main():
                     print(f"\n下載 {dataset['name']} 資料集失敗。")
             else:
                 print("操作已取消。")
-    
+   
     else:
         print("操作已取消。")
-
+ 
 if __name__ == "__main__":
     main()
